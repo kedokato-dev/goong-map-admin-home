@@ -1,4 +1,3 @@
-// Thay YOUR_GOONG_API_KEY và YOUR_GOONG_API_DIRECTION bằng API key của bạn
 const GOONG_API_KEY = "32kmtyYrNGxGT8HTfQuZoJKwKNltvXVh4fucACBd";
 const GOONG_API_DIRECTION = "mCTsP9i1RSee5Q2df9p57Gvseo9aueYfgdWDKaZO";
 
@@ -31,7 +30,7 @@ function initializeMap(lat, lng) {
     zoom: 13,
   });
 
-  new goongjs.Marker({ color: "green" })
+  new goongjs.Marker({ color: "Magenta" })
     .setLngLat([lng, lat])
     .addTo(map);
 
@@ -41,7 +40,6 @@ function initializeMap(lat, lng) {
   addLocationButton(map, lat, lng);
 }
 
-// Hàm tải các điểm cứu trợ và thiết lập dropdown
 // Hàm tải các điểm cứu trợ và thiết lập sự kiện click vào marker
 async function loadMarkersWithRouting(map, userLng, userLat) {
   try {
@@ -49,31 +47,78 @@ async function loadMarkersWithRouting(map, userLng, userLat) {
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const locations = await response.json();
 
-    // Thêm marker cho các điểm cứu trợ với popup
+    removeOldMarkers(map); // Xóa các marker cũ trước khi thêm mới
+
     locations.forEach((location) => {
       // Xác định màu marker dựa trên trạng thái
       let markerColor = "red"; // Mặc định là màu đỏ
       if (location.status === "Đang cứu trợ") {
         markerColor = "orange";
+      } else if (location.status === "Hoàn thành cứu trợ") {
+        markerColor = "green";
       }
 
       const marker = new goongjs.Marker({ color: markerColor })
         .setLngLat([location.longitude, location.latitude])
         .addTo(map);
 
-      // Tạo popup chứa thông tin địa điểm
-      const popup = new goongjs.Popup({ offset: 25 }).setHTML(
-        `<div>
-          <h4>${location.name || "Không có tên"}</h4>
-          <p><b>Tên người gửi:</b> ${location.request_sender}</p>
-          <p><b>SĐT:</b> ${location.phone_number}</p>
-          <p><b>Loại yêu cầu:</b> ${location.request_type}</p>
-          <p><b>Trạng thái:</b> ${location.status}</p>
-          <p><b>Số lượng người cần cứu trợ:</b> ${location.number_people || "Không có thông tin"}</p>
-        </div>`
-      );
+      // Tạo nội dung popup với dropdown và nút cập nhật
+      const popupContent = document.createElement("div");
 
-      // Liên kết popup với marker
+      const infoSection = document.createElement("div");
+      infoSection.innerHTML = `
+        <h4>${location.name || "Không có tên"}</h4>
+        <p><b>Tên người gửi:</b> ${location.request_sender}</p>
+        <p><b>SĐT:</b> ${location.phone_number}</p>
+        <p><b>Loại yêu cầu:</b> ${location.request_type}</p>
+        <p><b>Số lượng người cần cứu trợ:</b> ${location.number_people || "Không có thông tin"}</p>
+        <p><b>Trạng thái hiện tại:</b> ${location.status}</p>
+      `;
+
+      // Dropdown chọn trạng thái
+      const statusSelect = document.createElement("select");
+      ["Đang cứu trợ", "Chờ cứu trợ", "Hoàn thành cứu trợ"].forEach((status) => {
+        const option = document.createElement("option");
+        option.value = status;
+        option.textContent = status;
+        if (status === location.status) {
+          option.selected = true;
+        }
+        statusSelect.appendChild(option);
+      });
+
+      // Nút cập nhật trạng thái
+      const updateButton = document.createElement("button");
+      updateButton.textContent = "Cập nhật trạng thái";
+      updateButton.style.marginTop = "10px";
+
+      updateButton.addEventListener("click", async () => {
+        const newStatus = statusSelect.value;
+
+        try {
+          const response = await fetch(`https://goong-map-admin.vercel.app/locations/${location._id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: newStatus }),
+          });
+
+          if (response.ok) {
+            alert("Cập nhật trạng thái thành công!");
+            // Gọi lại để load các marker mới
+            loadMarkersWithRouting(map, userLng, userLat);
+          } else {
+            alert("Cập nhật trạng thái thất bại!");
+          }
+        } catch (error) {
+          console.error("Lỗi khi cập nhật trạng thái:", error);
+        }
+      });
+
+      popupContent.appendChild(infoSection);
+      popupContent.appendChild(statusSelect);
+      popupContent.appendChild(updateButton);
+
+      const popup = new goongjs.Popup({ offset: 25 }).setDOMContent(popupContent);
       marker.setPopup(popup);
     });
 
@@ -87,11 +132,30 @@ async function loadMarkersWithRouting(map, userLng, userLat) {
   }
 }
 
+// Hàm xóa các marker cũ
+function removeOldMarkers(map) {
+  const layers = map.getStyle().layers;
+  layers.forEach((layer) => {
+    if (layer.id.startsWith("marker") || layer.id === "route") {
+      map.removeLayer(layer.id);
+      map.removeSource(layer.id);
+    }
+  });
+}
 
-// Hàm tạo dropdown và thiết lập sự kiện
+
+
+
+
 function setupRouting(map, locations, userLat, userLng) {
   const pointSelector = document.getElementById("point-selector");
 
+  // Xóa các phần tử con cũ của `pointSelector` nếu có
+  while (pointSelector.firstChild) {
+    pointSelector.removeChild(pointSelector.firstChild);
+  }
+
+  // Tạo dropdown và nút tìm đường mới
   const startSelect = createDropdown("start-point", "Chọn điểm bắt đầu", locations);
   const endSelect = createDropdown("end-point", "Chọn điểm đến", locations);
 
@@ -126,10 +190,12 @@ function setupRouting(map, locations, userLat, userLng) {
     }
   });
 
+  // Thêm dropdown và nút vào giao diện
   pointSelector.appendChild(startSelect);
   pointSelector.appendChild(endSelect);
   pointSelector.appendChild(routeButton);
 }
+
 
 // Hàm lấy chỉ đường và khoảng cách
 async function getDirectionsWithDistance(startLng, startLat, endLng, endLat) {
@@ -190,7 +256,7 @@ function drawRoute(map, polyline) {
       },
     },
     layout: { "line-join": "round", "line-cap": "round" },
-    paint: { "line-color": "#FF3366", "line-width": 4 }, // Đổi màu sang xanh đậm
+    paint: { "line-color": "#FF3366", "line-width": 4 },
   };
 
   if (map.getLayer("route")) {
